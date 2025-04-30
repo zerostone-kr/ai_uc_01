@@ -1,0 +1,7 @@
+streamlit
+faiss-cpu
+sentence-transformers
+pypdf
+scikit-learn
+requests
+nest_asyncio

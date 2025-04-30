@@ -1,11 +1,26 @@
-# Created by venv; see https://docs.python.org/3/library/venv.html
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.pyo
+*.log
+
+# 무거운 라이브러리 바이너리 제외
+Lib/
+*.dll
+*.so
+*.pyd
+*.lib
+
+# 환경/가상환경
 .env
 .venv/
 venv/
-*.log
+
+# 모델/데이터
 *.faiss
 *.json
 *.gguf
 *.pdf
+
+# VSCode 설정
+.vscode/

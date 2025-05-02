@@ -9,6 +9,13 @@
 - LLM을 통한 규약 위반 판별
 - 결과는 마크다운 형식으로 시각화
 
+## Powershell 에서 오류시
+PSSecurityException
+    + FullyQualifiedErrorId : UnauthorizedAccess
+-----------------
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+
 ## 실행 방법
 
 ```bash

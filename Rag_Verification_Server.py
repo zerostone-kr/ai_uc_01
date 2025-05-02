@@ -1,4 +1,3 @@
-
 import nest_asyncio
 nest_asyncio.apply()
 
@@ -44,38 +43,18 @@ if os.path.exists(FAISS_INDEX_FILE):
         loaded_sentences = json.load(f)
 
 # -----------------------
-# 규약 PDF → 텍스트 추출
+# 텍스트 및 벡터 처리 함수들
 # -----------------------
 def extract_text_from_pdf(pdf_path):
-    logging.info("PDF에서 텍스트 추출 시작...")
-    start_time = time.time()
     reader = PdfReader(pdf_path)
-    text = ""
-    for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text + "\n"
-    logging.info(f"텍스트 추출 완료. 소요 시간: {time.time() - start_time:.2f}초")
-    return text
+    return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
 
-# -----------------------
-# 텍스트 전체 → 문장 분할
-# -----------------------
 def extract_all_sentences(text):
-    logging.info("문장 분할 시작...")
-    start_time = time.time()
     sentences = re.split(r'[\n\r\.\?]+', text)
-    result = [s.strip() for s in sentences if len(s.strip()) > 10]
-    logging.info(f"문장 분할 완료. 소요 시간: {time.time() - start_time:.2f}초")
-    return result
+    return [s.strip() for s in sentences if len(s.strip()) > 10]
 
-# -----------------------
-# 문장 → 벡터 저장
-# -----------------------
 def build_faiss_index(sentences):
     global faiss_index, loaded_sentences
-    logging.info("FAISS 인덱스 생성 및 저장 시작...")
-    start_time = time.time()
     embeddings = sentence_model.encode(sentences, convert_to_numpy=True)
     index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(embeddings)
@@ -84,23 +63,12 @@ def build_faiss_index(sentences):
         json.dump(sentences, f, ensure_ascii=False)
     faiss_index = index
     loaded_sentences = sentences
-    logging.info(f"인덱스 저장 완료. 소요 시간: {time.time() - start_time:.2f}초")
-    return index, sentences
 
-# -----------------------
-# 유사 문장 검색
-# -----------------------
 def search_similar_sentences(query, top_k=5):
-    logging.info(f"유사 문장 검색 시작... 쿼리: {query}")
-    start_time = time.time()
     query_vec = sentence_model.encode([query]).astype("float32")
     D, I = faiss_index.search(query_vec, top_k)
-    logging.info(f"유사 문장 검색 완료. 소요 시간: {time.time() - start_time:.2f}초")
     return [loaded_sentences[i] for i in I[0]]
 
-# -----------------------
-# 유사 문장 중복 제거
-# -----------------------
 def deduplicate_sentences(sentences, threshold=0.95):
     if len(sentences) <= 1:
         return sentences
@@ -113,58 +81,32 @@ def deduplicate_sentences(sentences, threshold=0.95):
     return [sentences[i] for i in unique_indices]
 
 # -----------------------
-# JSON 사전 검증 로직
-# -----------------------
-def prevalidate_json(user_json):
-    try:
-        data = json.loads(user_json)
-        violations = []
-
-        if data.get("특수채권여부") == True:
-            if not str(data.get("등록코드", "")).startswith("7"):
-                violations.append("- [등록코드]: 특수채권인데 등록코드가 7로 시작하지 않음")
-
-        return violations
-
-    except Exception as e:
-        return [f"⚠️ JSON 파싱 에러: {str(e)}"]
-
-# -----------------------
-# Ollama 로컬 API 호출
+# Ollama API 호출
 # -----------------------
 def call_ollama_with_prompt(context, user_json):
     prompt = f"""
 다음은 한국의 일반신용정보관리규약 핵심 요약입니다:
 {chr(10).join([f"- {line}" for line in context])}
 
-아래는 검토 대상 JSON입니다. 분석에만 참고하고 출력에는 절대 포함하지 마세요.
+검토 대상 JSON은 다음과 같습니다. 분석에만 참고하고 출력에는 포함하지 마세요:
 
 {user_json}
 
-다음 질문에 대답하세요:
-
-❓ 이 JSON 데이터에 규약 위반 항목이 있다면, 아래 형식으로만 간단히 작성해 주세요:
-
+이 JSON 데이터에 규약 위반이 있다면 아래 형식으로 간단히 작성하세요:
 - [항목명]: 위반 사유
 
-🛑 절대 다음 내용을 출력하지 마세요:
-- "다음은", "예시", "출력 형식" 등의 설명 문장
-- JSON 내용 또는 항목별 설명
-- 출력 형식 안내
-- 규약 위반이 없으면 아무 것도 출력하지 마세요.
-
-단순히 규약 위반 항목과 그 사유만 출력하세요.
+🛑 출력 시 아래 내용을 절대 포함하지 마세요:
+- \"다음은\", \"예시\", \"출력 형식\" 등의 설명
+- JSON 본문 또는 항목 설명
+- 형식 안내 문구
+- 아무 위반도 없을 경우 아무 것도 출력하지 마세요.
 """
 
-    logging.info("📡 Ollama API 호출 시작...")
-    start = time.time()
     response = requests.post(OLLAMA_API_URL, json={
         "model": MODEL_NAME,
         "prompt": prompt,
         "stream": False
     })
-    elapsed = time.time() - start
-    logging.info(f"✅ Ollama 응답 완료. 소요 시간: {elapsed:.2f}초")
 
     try:
         raw_output = response.json().get("response", "⚠️ 응답에 'response' 항목이 없습니다.")
@@ -174,26 +116,25 @@ def call_ollama_with_prompt(context, user_json):
     if isinstance(raw_output, str):
         filtered_lines = []
         for line in raw_output.splitlines():
-            if any(bad_word in line for bad_word in [    "예시", "출력 형식", "다음은", "※", "설명", "결과입니다",    "아래와 같은 질문", "다음 질문에 대답", "❓"]):
+            if any(bad_word in line for bad_word in [
+                "예시", "출력 형식", "다음은", "※", "설명", "결과입니다",
+                "아래와 같은 질문", "다음 질문에 대답", "❓"
+            ]):
                 continue
-            if line.strip() == "":
-                continue
-            filtered_lines.append(line)
-        
-        if not filtered_lines:
-            return "✅ 검증 결과: 이상 없음"
-        
+            if line.strip():
+                filtered_lines.append(line.strip())
+
         return "\n".join(filtered_lines).strip()
 
     return raw_output
 
 # -----------------------
-# Streamlit 인터페이스
+# Streamlit UI
 # -----------------------
 st.set_page_config(page_title="신용도판단정보 검증", layout="wide")
 st.title("📄 일반신용정보관리규약 기반 검증 (로컬 Ollama API)")
 
-# PDF 로딩은 최초 실행 시 1회만 수행
+# ✅ 최초 1회 PDF 처리
 if 'initialized' not in st.session_state:
     with st.spinner("📘 규약 PDF 처리 중입니다..."):
         if not os.path.exists(FIXED_PDF_PATH):
@@ -207,6 +148,7 @@ if 'initialized' not in st.session_state:
             st.session_state['initialized'] = True
             st.success(f"✅ 규약 PDF 처리 완료. 총 {len(all_sentences)}개의 문장을 벡터화했습니다.")
 
+# ✅ 검증 입력 UI
 st.markdown("## 🧪 JSON 검증 테스트")
 
 json_input = st.text_area("검증 대상 JSON 입력", height=300, value='''{
@@ -231,24 +173,30 @@ json_input = st.text_area("검증 대상 JSON 입력", height=300, value='''{
   "비고": "신용카드 청구대금 미결제에 따른 연체"
 }''')
 
-query = st.text_input("질문 요약 (예: 연체정보 등록 기준)", "연체정보 등록 조건과 특수채권 등록 기준 위반 여부 검토")
-
 if st.button("🚀 검증 요청"):
     with st.spinner("검증 중입니다..."):
-        precheck = prevalidate_json(json_input)
-        top_sentences = deduplicate_sentences(search_similar_sentences(query, top_k=10))
+        try:
+            json_data = json.loads(json_input)
+            queries = [f"{k}: {v}" for k, v in json_data.items() if not isinstance(v, dict)]
+            if '식별정보' in json_data:
+                queries.append(f"성명: {json_data['식별정보'].get('성명', '')}")
+                queries.append(f"주민등록번호: {json_data['식별정보'].get('주민등록번호', '')}")
+        except Exception as e:
+            st.error(f"❌ JSON 파싱 오류: {str(e)}")
+            st.stop()
+
+        retrieved = []
+        for q in queries:
+            retrieved.extend(search_similar_sentences(q, top_k=3))
+        top_sentences = deduplicate_sentences(retrieved)
+
         result = call_ollama_with_prompt(top_sentences, json_input)
 
-        # ✅ 사전검증 및 LLM 응답 통합 처리 (이상 없음 출력 완전 차단 조건 포함)
         final_lines = []
-
-        if precheck:
-            final_lines.extend(precheck)
-
         if result and result.strip() and result.strip() != "✅ 검증 결과: 이상 없음":
             final_lines.append(result.strip())
 
         if not final_lines:
             final_lines.append("✅ 검증 결과: 이상 없음")
 
-        st.markdown("### ✅ 검증 결과\n```markdown\n" + "\n".join(final_lines) + "\n```") 
+        st.markdown("### ✅ 검증 결과\n```markdown\n" + "\n".join(final_lines) + "\n```")

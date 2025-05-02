@@ -1,3 +1,4 @@
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 <#
 .Synopsis
 Activate a Python virtual environment for the current PowerShell session.
